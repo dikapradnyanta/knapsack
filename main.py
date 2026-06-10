@@ -99,29 +99,101 @@ def neo_entry(parent: tk.Widget, textvariable: tk.StringVar,
 
 
 def neo_button(parent: tk.Widget, text: str, color: str,
-               command, font_key: str = "btn",
+               command, font_key: str = "btn", icon_type: str = "",
                padx: int = 16, pady: int = 8) -> tk.Frame:
-    """Tombol bergaya neobrutalism dengan shadow efek saat diklik."""
+    """Tombol bergaya neobrutalism universal dengan vector icon opsional."""
     shadow = tk.Frame(parent, bg=C["black"])
-    btn = tk.Button(
-        shadow,
-        text=text,
-        bg=color, fg=C["black"],
-        font=FONTS[font_key],
-        relief="flat", bd=0, highlightthickness=2, highlightbackground=C["black"],
-        padx=padx, pady=pady,
-        cursor="hand2",
-        activebackground=color, activeforeground=C["black"],
-        command=command,
-    )
-    # Default state: offset hard shadow 4px 4px
-    btn.pack(fill="both", expand=True, padx=(0, 4), pady=(0, 4))
+    
+    face = tk.Frame(shadow, bg=color, highlightthickness=2, highlightbackground=C["black"], cursor="hand2")
+    face.pack(fill="both", expand=True, padx=(0, 4), pady=(0, 4))
+    
+    inner = tk.Frame(face, bg=color, cursor="hand2")
+    inner.pack(expand=True, padx=padx, pady=pady)
+    
+    canvas = None
+    if icon_type:
+        canvas = tk.Canvas(inner, bg=color, width=20, height=20, bd=0, highlightthickness=0, cursor="hand2")
+        canvas.pack(side="left", padx=(0, 6))
+        
+    text_id = tk.Label(inner, text=text, font=FONTS[font_key], bg=color, fg=C["black"], cursor="hand2")
+    text_id.pack(side="left")
 
-    # Press animation (geser shadow)
-    btn.bind("<ButtonPress-1>",   lambda _e: btn.pack_configure(padx=(4, 0), pady=(4, 0)))
-    btn.bind("<ButtonRelease-1>", lambda _e: btn.pack_configure(padx=(0, 4), pady=(0, 4)))
+    def draw_icon(state="normal"):
+        if not canvas: return
+        canvas.delete("icon")
+        cx, cy = 10, 10
+        if icon_type == "reset":
+            r = 6
+            canvas.create_arc(cx-r, cy-r, cx+r, cy+r, start=30, extent=270, style="arc", outline=C["black"], width=2, tags="icon")
+            canvas.create_polygon(cx+r-1, cy-3, cx+r+5, cy-1, cx+r+1, cy+4, fill=C["black"], tags="icon")
+        elif icon_type == "mute":
+            # Geser speaker ke kiri (x: 3 s/d 12) agar X dan gelombang muat di kanan (x: 14 s/d 19)
+            canvas.create_polygon(3, 7, 7, 7, 12, 3, 12, 17, 7, 13, 3, 13, fill=color, outline=C["black"], width=2, tags="icon")
+            if state == "muted":
+                # Coret speaker dengan satu garis miring (slash) yang tebal
+                canvas.create_line(14, 2, 2, 18, fill=C["black"], width=3, tags="icon")
+            else:
+                canvas.create_arc(10, 6, 16, 14, start=-60, extent=120, style="arc", outline=C["black"], width=2, tags="icon")
+                canvas.create_arc(6, 2, 20, 18, start=-60, extent=120, style="arc", outline=C["black"], width=2, tags="icon")
+        elif icon_type == "plus":
+            canvas.create_line(cx, cy-6, cx, cy+6, fill=C["black"], width=2, tags="icon")
+            canvas.create_line(cx-6, cy, cx+6, cy, fill=C["black"], width=2, tags="icon")
+        elif icon_type == "import":
+            canvas.create_line(cx, cy-6, cx, cy+2, fill=C["black"], width=2, tags="icon")
+            canvas.create_polygon(cx-4, cy, cx+4, cy, cx, cy+5, fill=C["black"], tags="icon")
+            canvas.create_line(cx-6, cy+6, cx+6, cy+6, fill=C["black"], width=2, tags="icon")
+        elif icon_type == "export":
+            canvas.create_line(cx, cy+2, cx, cy-6, fill=C["black"], width=2, tags="icon")
+            canvas.create_polygon(cx-4, cy-2, cx+4, cy-2, cx, cy-7, fill=C["black"], tags="icon")
+            canvas.create_line(cx-6, cy+6, cx+6, cy+6, fill=C["black"], width=2, tags="icon")
+        elif icon_type == "trash":
+            canvas.create_rectangle(cx-4, cy-2, cx+4, cy+6, outline=C["black"], width=2, tags="icon")
+            canvas.create_line(cx-6, cy-2, cx+6, cy-2, fill=C["black"], width=2, tags="icon")
+            canvas.create_line(cx-2, cy-5, cx+2, cy-5, fill=C["black"], width=2, tags="icon")
+        elif icon_type == "lightning":
+            canvas.create_polygon(cx+2, cy-7, cx-4, cy+1, cx+1, cy+1, cx-2, cy+7, cx+4, cy-1, cx-1, cy-1, fill=color, outline=C["black"], width=2, tags="icon")
+        elif icon_type == "eye":
+            canvas.create_arc(cx-8, cy-4, cx+8, cy+6, start=0, extent=180, style="arc", outline=C["black"], width=2, tags="icon")
+            canvas.create_arc(cx-8, cy-4, cx+8, cy+6, start=180, extent=180, style="arc", outline=C["black"], width=2, tags="icon")
+            if state == "closed":
+                canvas.create_line(cx-7, cy-3, cx+7, cy+5, fill=C["black"], width=2, tags="icon")
+            else:
+                canvas.create_oval(cx-2, cy-1, cx+2, cy+3, fill=C["black"], tags="icon")
 
-    shadow._btn = btn  # Expose underlying Button for state control
+    draw_icon("unmuted" if icon_type == "mute" else "normal")
+
+    def on_press(e):
+        if shadow._state == "normal": face.pack_configure(padx=(4, 0), pady=(4, 0))
+    def on_release(e):
+        if shadow._state == "normal":
+            face.pack_configure(padx=(0, 4), pady=(0, 4))
+            command()
+
+    elements = [face, inner, text_id]
+    if canvas: elements.append(canvas)
+    for el in elements:
+        el.bind("<ButtonPress-1>", on_press)
+        el.bind("<ButtonRelease-1>", on_release)
+        
+    class _BtnProxy:
+        pass
+    proxy = _BtnProxy()
+    
+    def config_proxy(**kwargs):
+        if "text" in kwargs:
+            text_id.configure(text=kwargs["text"])
+        if "state" in kwargs:
+            shadow._state = kwargs["state"]
+            if kwargs["state"] == "disabled":
+                text_id.configure(fg=C["dark_gray"])
+            else:
+                text_id.configure(fg=C["black"])
+            
+    proxy.config = config_proxy
+    shadow._btn = proxy
+    shadow._draw_icon = draw_icon
+    shadow._state = "normal"
+    
     return shadow
 
 
@@ -247,11 +319,11 @@ class KnapsackApp(tk.Tk):
         neo_label(hdr, "Dynamic Programming  ·  Multi-Constraint 0/1",
                   font=("Arial", 11, "italic"), bg=C["yellow"],
                   fg=C["dark_gray"]).pack(side="left", padx=4)
-        neo_button(hdr, "🔄 RESET", C["pink"], self._reset,
-                   font_key="btn_sm", padx=10, pady=6).pack(
+        neo_button(hdr, "RESET", C["pink"], self._reset,
+                   font_key="btn_sm", icon_type="reset", padx=10, pady=6).pack(
                        side="right", padx=(0, 6), pady=10)
-        self.btn_music = neo_button(hdr, "🔇 MUTE", C["gray"], self._toggle_music,
-                                    font_key="btn_sm", padx=10, pady=6)
+        self.btn_music = neo_button(hdr, "MUTE", C["gray"], self._toggle_music,
+                                    font_key="btn_sm", icon_type="mute", padx=10, pady=6)
         self.btn_music.pack(side="right", padx=(0, 6), pady=10)
         if not _PYGAME_OK:
             self.btn_music._btn.config(state="disabled")
@@ -284,13 +356,13 @@ class KnapsackApp(tk.Tk):
         vol_row = tk.Frame(inner, bg=C["blue"])
         vol_row.pack(fill="x", pady=(6, 0))
         neo_label(vol_row, "Volume:", font=FONTS["body_b"], bg=C["blue"]).pack(side="left")
-        self._lbl_item_vol = neo_label(vol_row, "— cm³", bg=C["blue"],
+        self._lbl_item_vol = neo_label(vol_row, "belum diisi", bg=C["blue"],
                                         fg=C["dark_gray"])
         self._lbl_item_vol.pack(side="left", padx=6)
 
         tk.Frame(inner, height=3, bg=C["black"]).pack(fill="x", pady=10)
-        neo_button(inner, "＋ TAMBAH BARANG", C["pink"],
-                   self._add_item).pack(pady=4)
+        neo_button(inner, "INPUT BARANG", C["pink"],
+                   self._add_item, icon_type="plus").pack(pady=4)
 
     def _labeled_entry(self, parent: tk.Widget, label: str,
                         var: tk.StringVar, bg: str) -> None:
@@ -314,17 +386,17 @@ class KnapsackApp(tk.Tk):
         btn_row = tk.Frame(inner, bg=C["white"])
         btn_row.pack(fill="x", pady=(8, 0))
         
-        neo_button(btn_row, "📥 IMPORT CSV", C["blue"],
+        neo_button(btn_row, "IMPORT CSV", C["blue"],
                    self._import_csv, font_key="btn_sm",
-                   padx=10, pady=6).pack(side="left", padx=(0, 4))
+                   icon_type="import", padx=10, pady=6).pack(side="left", padx=(0, 4))
         
-        neo_button(btn_row, "📤 EXPORT CSV", C["yellow"],
+        neo_button(btn_row, "EXPORT CSV", C["yellow"],
                    self._export_csv, font_key="btn_sm",
-                   padx=10, pady=6).pack(side="left", padx=4)
+                   icon_type="export", padx=10, pady=6).pack(side="left", padx=4)
         
-        neo_button(btn_row, "🗑 HAPUS", C["gray"],
+        neo_button(btn_row, "HAPUS", C["gray"],
                    self._delete_item, font_key="btn_sm",
-                   padx=10, pady=6).pack(side="right", padx=(4, 0))
+                   icon_type="trash", padx=10, pady=6).pack(side="right", padx=(4, 0))
 
     def _setup_treeview(self, parent: tk.Widget) -> None:
         wrapper = tk.Frame(parent, bg=C["black"], bd=2)
@@ -421,12 +493,12 @@ class KnapsackApp(tk.Tk):
         vol_row = tk.Frame(inner, bg=C["yellow"])
         vol_row.pack(fill="x", pady=(6, 0))
         neo_label(vol_row, "Vol Maks:", font=FONTS["body_b"], bg=C["yellow"]).pack(side="left")
-        self._lbl_cap_vol = neo_label(vol_row, "— cm³", bg=C["yellow"], fg=C["dark_gray"])
+        self._lbl_cap_vol = neo_label(vol_row, "belum diisi", bg=C["yellow"], fg=C["dark_gray"])
         self._lbl_cap_vol.pack(side="left", padx=4)
 
         # ── Simulasi Meter ────────────────────────────────────
         tk.Frame(inner, height=3, bg=C["black"]).pack(fill="x", pady=(12, 8))
-        neo_label(inner, "SIMULASI CENTANG", font=FONTS["body_b"],
+        neo_label(inner, "SIMULASI 🎒", font=FONTS["body_b"],
                   bg=C["yellow"]).pack(anchor="w", pady=(0, 6))
 
         # Berat meter
@@ -457,8 +529,8 @@ class KnapsackApp(tk.Tk):
 
         # ── Tombol Hitung ─────────────────────────────────────
         tk.Frame(inner, height=3, bg=C["black"]).pack(fill="x", pady=(0, 8))
-        neo_button(inner, "⚡ HITUNG SOLUSI", C["pink"],
-                   self._solve).pack(fill="x", pady=4)
+        neo_button(inner, "CARI SOLUSI OPTIMAL", C["pink"],
+                   self._solve, icon_type="lightning").pack(fill="x", pady=4)
 
     # ── Panel Hasil ───────────────────────────────────────────
 
@@ -472,9 +544,9 @@ class KnapsackApp(tk.Tk):
         neo_label(header_frame, "HASIL SOLUSI", font=FONTS["head"],
                   bg=C["lime"]).pack(side="left")
                   
-        self.btn_reveal = neo_button(header_frame, "👀 REVEAL SOLUTION", C["yellow"],
+        self.btn_reveal = neo_button(header_frame, "LIHAT SOLUSI", C["yellow"],
                                      self._toggle_reveal, font_key="btn_sm",
-                                     padx=10, pady=4)
+                                     icon_type="eye", padx=10, pady=4)
         self.btn_reveal.pack(side="right")
         self.btn_reveal._btn.config(state="disabled")
 
@@ -484,7 +556,7 @@ class KnapsackApp(tk.Tk):
         self.result_info_frame = tk.Frame(inner, bg=C["lime"])
         self.result_info_frame.pack(fill="x", pady=(0, 10))
         
-        self.lbl_val = neo_label(self.result_info_frame, "Tekan  ⚡ HITUNG SOLUSI  untuk melihat hasil optimal.", bg=C["lime"], justify="left")
+        self.lbl_val = neo_label(self.result_info_frame, "Tekan ⚡ CARI SOLUSI OPTIMAL untuk mulai menghitung.", bg=C["lime"], justify="left")
         self.lbl_val.pack(anchor="w")
         self.lbl_weight = neo_label(self.result_info_frame, "", bg=C["lime"], justify="left")
         self.lbl_vol = neo_label(self.result_info_frame, "", bg=C["lime"], justify="left")
@@ -494,7 +566,7 @@ class KnapsackApp(tk.Tk):
         self.canvas_vis.pack(fill="x", pady=(0, 10))
 
         # Frame untuk Badges (menggunakan Text widget agar otomatis wrap)
-        self.lbl_badges_title = neo_label(inner, "Barang Terpilih:", bg=C["lime"], font=FONTS["body_b"])
+        self.lbl_badges_title = neo_label(inner, "Barang yang masuk tas:", bg=C["lime"], font=FONTS["body_b"])
         self.badges_text = tk.Text(inner, bg=C["lime"], bd=0, highlightthickness=0, height=3, wrap="word", state="disabled", font=FONTS["small"])
 
     # ─────────────────────────────────────────────────────────
@@ -766,7 +838,7 @@ class KnapsackApp(tk.Tk):
         self.lbl_weight.pack(anchor="w")
         self.lbl_vol.pack(anchor="w")
         
-        self.lbl_val.config(text=f"✅ Kalkulasi selesai! Klik 👀 REVEAL SOLUTION.")
+        self.lbl_val.config(text=f"✅ Kalkulasi selesai! Tekan  LIHAT SOLUSI untuk detailnya.")
         self.lbl_weight.config(text=f"🏆 Theoretical Max Value : {val} / {max_val}   {stars}")
         self.lbl_vol.config(text="")
         
@@ -776,7 +848,7 @@ class KnapsackApp(tk.Tk):
         self.badges_text.delete("1.0", "end")
         self.badges_text.config(state="disabled")
         
-        self.btn_reveal._btn.config(state="normal", text="👀 REVEAL SOLUTION")
+        self.btn_reveal._btn.config(state="normal", text="LIHAT SOLUSI")
 
     def _toggle_reveal(self) -> None:
         if not self.last_result or not self.last_active_items:
@@ -789,7 +861,8 @@ class KnapsackApp(tk.Tk):
 
     def _hide_solution(self) -> None:
         self.is_revealed = False
-        self.btn_reveal._btn.config(text="👀 REVEAL SOLUTION")
+        self.btn_reveal._btn.config(text="LIHAT SOLUSI")
+        self.btn_reveal._draw_icon("normal")
         for iid in self.tree.get_children():
             self.tree.item(iid, tags=())
         self.canvas_vis.delete("all")
@@ -803,13 +876,14 @@ class KnapsackApp(tk.Tk):
             max_val = sum(i["value"] for i in self.last_active_items)
             val = self.last_result["total_value"]
             stars = ("★" * val + "☆" * max(0, max_val - val))[:10]
-            self.lbl_val.config(text=f"✅ Kalkulasi selesai! Klik 👀 REVEAL SOLUTION.")
+            self.lbl_val.config(text=f"✅ Kalkulasi selesai! Tekan LIHAT SOLUSI untuk detailnya.")
             self.lbl_weight.config(text=f"🏆 Theoretical Max Value : {val} / {max_val}   {stars}")
             self.lbl_vol.config(text="")
 
     def _reveal_solution(self) -> None:
         self.is_revealed = True
-        self.btn_reveal._btn.config(text="🙈 HIDE SOLUTION")
+        self.btn_reveal._btn.config(text="SEMBUNYIKAN")
+        self.btn_reveal._draw_icon("closed")
         
         result     = self.last_result
         items_used = self.last_active_items
@@ -850,9 +924,9 @@ class KnapsackApp(tk.Tk):
 
         if not chosen or max_w <= 0:
             stars = ("☆" * max_val)[:10]
-            self.lbl_val.config(text=f"🏆  Total Nilai      :  0 / {max_val}   {stars}")
-            self.lbl_weight.config(text=f"⚖️   Total Berat      :  0 kg  dari  {max_w} kg  (0.0%)")
-            self.lbl_vol.config(text=f"📦  Total Volume     :  0 cm³  dari  {max_v:,} cm³  (0.0%)")
+            self.lbl_val.config(text=f"🏆  Total Nilai     :  0 / {max_val}   {stars}")
+            self.lbl_weight.config(text=f"⚖️  Total Berat     :  0 kg dari {max_w} kg (0%)")
+            self.lbl_vol.config(text=f"📦  Total Volume    :  0 cm³ dari {max_v:,} cm³ (0%)")
             return
 
         colors = [C["blue"], C["yellow"], C["pink"], "#00D2FF", "#A78BFA", "#F87171"]
@@ -888,9 +962,9 @@ class KnapsackApp(tk.Tk):
             pct_v = (self._anim_vol / max_v * 100) if max_v else 0
             stars = ("★" * self._anim_val + "☆" * max(0, max_val - self._anim_val))[:10]
             
-            self.lbl_val.config(text=f"🏆  Total Nilai      :  {self._anim_val} / {max_val}   {stars}")
-            self.lbl_weight.config(text=f"⚖️   Total Berat      :  {self._anim_w:.1f} kg  dari  {max_w} kg  ({pct_w:.1f}%)")
-            self.lbl_vol.config(text=f"📦  Total Volume     :  {self._anim_vol:,} cm³  dari  {max_v:,} cm³  ({pct_v:.1f}%)")
+            self.lbl_val.config(text=f"🏆  Total Nilai     :  {self._anim_val} / {max_val}   {stars}")
+            self.lbl_weight.config(text=f"⚖️  Total Berat     :  {self._anim_w:.1f} kg dari {max_w} kg ({pct_w:.1f}%)")
+            self.lbl_vol.config(text=f"📦  Total Volume    :  {self._anim_vol:,} cm³ dari {max_v:,} cm³ ({pct_v:.1f}%)")
 
             if idx == len(chosen):
                 return # Selesai
@@ -931,15 +1005,16 @@ class KnapsackApp(tk.Tk):
         self.last_max_w        = 0.0
         self.last_max_v        = 0
         self.is_revealed       = False
-        self.btn_reveal._btn.config(state="disabled", text="👀 REVEAL SOLUTION")
+        self.btn_reveal._btn.config(state="disabled", text="LIHAT SOLUSI")
         self.canvas_vis.delete("all")
         
         self.lbl_badges_title.pack_forget()
-        self.badges_frame.pack_forget()
-        for widget in self.badges_frame.winfo_children():
-            widget.destroy()
+        self.badges_text.pack_forget()
+        self.badges_text.config(state="normal")
+        self.badges_text.delete("1.0", "end")
+        self.badges_text.config(state="disabled")
             
-        self.lbl_val.config(text="Tekan  ⚡ HITUNG SOLUSI  untuk melihat hasil optimal.")
+        self.lbl_val.config(text="Tekan ⚡ CARI SOLUSI OPTIMAL untuk mulai menghitung.")
         self.lbl_weight.pack_forget()
         self.lbl_vol.pack_forget()
         log.info("Aplikasi di-reset.")
@@ -953,12 +1028,14 @@ class KnapsackApp(tk.Tk):
             if self.music_muted:
                 pygame.mixer.music.set_volume(0.5)
                 self.music_muted = False
-                self.btn_music._btn.config(text="🔇 MUTE")
+                self.btn_music._btn.config(text="MUTE")
+                self.btn_music._draw_icon("unmuted")
                 log.debug("Musik dilanjutkan (unmute).")
             else:
                 pygame.mixer.music.set_volume(0.0)
                 self.music_muted = True
-                self.btn_music._btn.config(text="🔊 UNMUTE")
+                self.btn_music._btn.config(text="UNMUTE")
+                self.btn_music._draw_icon("muted")
                 log.debug("Musik dibisukan (mute).")
         except Exception as e:
             log.warning("Gagal toggle musik: %s", e)
