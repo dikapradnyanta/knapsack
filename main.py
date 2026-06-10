@@ -6,8 +6,15 @@ Gaya Visual: Neobrutalism
 
 import csv
 import logging
+import os
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
+
+try:
+    import pygame
+    _PYGAME_OK = True
+except ImportError:
+    _PYGAME_OK = False
 
 from quiz_popup import QuizPopup
 from dp_solver import solve_knapsack, Item
@@ -108,12 +115,13 @@ def neo_button(parent: tk.Widget, text: str, color: str,
         command=command,
     )
     # Default state: offset hard shadow 4px 4px
-    btn.pack(padx=(0, 4), pady=(0, 4))
+    btn.pack(fill="both", expand=True, padx=(0, 4), pady=(0, 4))
 
     # Press animation (geser shadow)
     btn.bind("<ButtonPress-1>",   lambda _e: btn.pack_configure(padx=(4, 0), pady=(4, 0)))
     btn.bind("<ButtonRelease-1>", lambda _e: btn.pack_configure(padx=(0, 4), pady=(0, 4)))
 
+    shadow._btn = btn  # Expose underlying Button for state control
     return shadow
 
 
@@ -134,10 +142,49 @@ class KnapsackApp(tk.Tk):
 
         self.items: list[Item] = []
 
+        # State untuk musik
+        self.music_muted: bool = False
+
+        # State untuk Reveal feature
+        self.last_result: dict | None = None
+        self.last_active_items: list[Item] | None = None
+        self.last_max_w: float = 0.0
+        self.last_max_v: int = 0
+        self.is_revealed: bool = False
+
         self._init_vars()
         self._build_ui()
-        self._center_window(960, 760)
+        self._init_music()
+        self._center_window(1100, 780)
         log.info("Aplikasi dimulai.")
+
+    def _init_music(self) -> None:
+        """Inisialisasi pygame mixer dan mulai musik latar secara otomatis."""
+        if not _PYGAME_OK:
+            log.warning("pygame tidak tersedia, fitur musik dinonaktifkan.")
+            return
+        try:
+            pygame.mixer.init()
+            music_path = os.path.join(os.path.dirname(__file__), "bgm.mp3")
+            pygame.mixer.music.load(music_path)
+            pygame.mixer.music.set_volume(0.5)
+            pygame.mixer.music.play(loops=-1)  # loop selamanya
+            self.music_muted = False
+            log.info("Musik latar diputar.")
+        except Exception as e:
+            log.warning("Gagal memuat musik: %s", e)
+            self.music_muted = True
+        self.protocol("WM_DELETE_WINDOW", self._on_close)
+
+    def _on_close(self) -> None:
+        """Hentikan mixer sebelum keluar agar tidak ada thread yang tersisa."""
+        if _PYGAME_OK:
+            try:
+                pygame.mixer.music.stop()
+                pygame.mixer.quit()
+            except Exception:
+                pass
+        self.destroy()
 
     # ── Variabel Input ────────────────────────────────────────
 
@@ -175,16 +222,19 @@ class KnapsackApp(tk.Tk):
     def _build_ui(self) -> None:
         self._build_header()
 
+        # Build result panel first and pack it at the bottom so it's never pushed off-screen
+        self._build_result_panel()
+
         body = tk.Frame(self, bg=C["bg"])
-        body.pack(fill="both", expand=True, padx=10, pady=8)
-        body.columnconfigure(0, weight=0, minsize=280)
+        body.pack(side="top", fill="both", expand=True, padx=10, pady=8)
+        body.columnconfigure(0, weight=0, minsize=200)
         body.columnconfigure(1, weight=1)
+        body.columnconfigure(2, weight=0, minsize=220)
         body.rowconfigure(0, weight=1)
 
         self._build_input_panel(body)
         self._build_list_panel(body)
-        self._build_capacity_panel()
-        self._build_result_panel()
+        self._build_right_panel(body)
 
     def _build_header(self) -> None:
         hdr = tk.Frame(self, bg=C["yellow"])
@@ -199,7 +249,12 @@ class KnapsackApp(tk.Tk):
                   fg=C["dark_gray"]).pack(side="left", padx=4)
         neo_button(hdr, "🔄 RESET", C["pink"], self._reset,
                    font_key="btn_sm", padx=10, pady=6).pack(
-                       side="right", padx=14, pady=10)
+                       side="right", padx=(0, 6), pady=10)
+        self.btn_music = neo_button(hdr, "🔇 MUTE", C["gray"], self._toggle_music,
+                                    font_key="btn_sm", padx=10, pady=6)
+        self.btn_music.pack(side="right", padx=(0, 6), pady=10)
+        if not _PYGAME_OK:
+            self.btn_music._btn.config(state="disabled")
 
     # ── Panel Input Barang ────────────────────────────────────
 
@@ -248,7 +303,7 @@ class KnapsackApp(tk.Tk):
 
     def _build_list_panel(self, parent: tk.Frame) -> None:
         inner = neo_frame(parent, bg=C["white"])
-        inner._outer.grid(row=0, column=1, sticky="nsew", pady=4)
+        inner._outer.grid(row=0, column=1, sticky="nsew", padx=6, pady=4)
 
         neo_label(inner, "DAFTAR BARANG", font=FONTS["head"],
                   bg=C["white"]).pack(anchor="w", pady=(0, 8))
@@ -275,11 +330,12 @@ class KnapsackApp(tk.Tk):
         wrapper = tk.Frame(parent, bg=C["black"], bd=2)
         wrapper.pack(fill="both", expand=True)
 
-        cols = ("no", "nama", "berat", "volume", "nilai")
+        cols = ("sim", "no", "nama", "berat", "volume", "nilai")
         self.tree = ttk.Treeview(wrapper, columns=cols, show="headings",
                                   height=10, selectmode="browse")
 
         col_defs = [
+            ("sim",    "Sim",       50),
             ("no",     "No",        40),
             ("nama",   "Nama",     130),
             ("berat",  "Berat(kg)", 80),
@@ -310,61 +366,136 @@ class KnapsackApp(tk.Tk):
         self.tree.pack(side="left", fill="both", expand=True, padx=(2, 0), pady=2)
         scroll.pack(side="right", fill="y", padx=(0, 2), pady=2)
 
-    # ── Panel Kapasitas Tas ───────────────────────────────────
+        # Bind event klik untuk checkbox
+        self.tree.bind("<ButtonRelease-1>", self._on_tree_click)
 
-    def _build_capacity_panel(self) -> None:
-        inner = neo_frame(self, bg=C["yellow"])
-        inner._outer.pack(fill="x", padx=10, pady=(2, 4))
+    def _on_tree_click(self, event) -> None:
+        region = self.tree.identify("region", event.x, event.y)
+        if region != "cell":
+            return
+        
+        col = self.tree.identify_column(event.x)
+        if col == "#1":  # Kolom "Sim"
+            row_id = self.tree.identify_row(event.y)
+            if row_id:
+                vals = list(self.tree.item(row_id, "values"))
+                idx = int(vals[1]) - 1  # vals[1] is "no"
+                
+                # Toggle status simulasi
+                if vals[0] == "☑":
+                    vals[0] = "☐"
+                    self.items[idx]["active"] = False
+                else:
+                    vals[0] = "☑"
+                    self.items[idx]["active"] = True
+                
+                self.tree.item(row_id, values=vals)
+                self._update_sim_meters()
+
+    # ── Panel Kanan: Kapasitas + Simulasi ─────────────────────
+
+    def _build_right_panel(self, parent: tk.Frame) -> None:
+        inner = neo_frame(parent, bg=C["yellow"])
+        inner._outer.grid(row=0, column=2, sticky="nsew", padx=(0, 0), pady=4)
 
         neo_label(inner, "KAPASITAS TAS", font=FONTS["head"],
-                  bg=C["yellow"]).grid(row=0, column=0, sticky="w", pady=(0, 6))
-        tk.Frame(inner, height=3, bg=C["black"]).grid(
-            row=1, column=0, columnspan=12, sticky="ew", pady=(0, 8))
+                  bg=C["yellow"]).pack(anchor="w", pady=(0, 4))
+        tk.Frame(inner, height=3, bg=C["black"]).pack(fill="x", pady=(0, 10))
 
         # Berat maks
         neo_label(inner, "Berat Maks (kg):", font=FONTS["body_b"],
-                  bg=C["yellow"]).grid(row=2, column=0, sticky="w", padx=(0, 6))
-        neo_entry(inner, textvariable=self.var_cap_w, width=8).grid(
-            row=2, column=1, padx=(0, 20))
+                  bg=C["yellow"]).pack(anchor="w")
+        neo_entry(inner, textvariable=self.var_cap_w, width=10).pack(anchor="w", pady=(2, 8))
 
         # Dimensi tas
-        neo_label(inner, "Dimensi Tas P×L×T (cm):", font=FONTS["body_b"],
-                  bg=C["yellow"]).grid(row=2, column=2, sticky="w", padx=(0, 6))
-        for i, (var, lbl) in enumerate([(self.var_cap_p, "P"),
-                                         (self.var_cap_l, "L"),
-                                         (self.var_cap_t, "T")]):
-            col = 3 + i * 2
-            neo_label(inner, lbl, font=FONTS["small"],
-                      bg=C["yellow"]).grid(row=2, column=col, padx=(4, 0))
-            neo_entry(inner, textvariable=var, width=6).grid(
-                row=2, column=col + 1, padx=(2, 4))
+        neo_label(inner, "Dimensi Tas (cm):", font=FONTS["body_b"],
+                  bg=C["yellow"]).pack(anchor="w")
+        dim_row = tk.Frame(inner, bg=C["yellow"])
+        dim_row.pack(anchor="w", pady=(2, 0))
+        for var, lbl in [(self.var_cap_p, "P"), (self.var_cap_l, "L"), (self.var_cap_t, "T")]:
+            cell = tk.Frame(dim_row, bg=C["yellow"])
+            cell.pack(side="left", padx=(0, 4))
+            neo_label(cell, lbl, font=FONTS["small"], bg=C["yellow"]).pack(anchor="w")
+            neo_entry(cell, textvariable=var, width=5).pack()
 
-        neo_label(inner, "Vol Maks:", font=FONTS["body_b"],
-                  bg=C["yellow"]).grid(row=2, column=9, padx=(10, 4))
-        self._lbl_cap_vol = neo_label(inner, "— cm³", bg=C["yellow"],
-                                       fg=C["dark_gray"])
-        self._lbl_cap_vol.grid(row=2, column=10, sticky="w")
+        vol_row = tk.Frame(inner, bg=C["yellow"])
+        vol_row.pack(fill="x", pady=(6, 0))
+        neo_label(vol_row, "Vol Maks:", font=FONTS["body_b"], bg=C["yellow"]).pack(side="left")
+        self._lbl_cap_vol = neo_label(vol_row, "— cm³", bg=C["yellow"], fg=C["dark_gray"])
+        self._lbl_cap_vol.pack(side="left", padx=4)
 
+        # ── Simulasi Meter ────────────────────────────────────
+        tk.Frame(inner, height=3, bg=C["black"]).pack(fill="x", pady=(12, 8))
+        neo_label(inner, "SIMULASI CENTANG", font=FONTS["body_b"],
+                  bg=C["yellow"]).pack(anchor="w", pady=(0, 6))
+
+        # Berat meter
+        neo_label(inner, "⚖  Berat:", font=FONTS["small"], bg=C["yellow"]).pack(anchor="w")
+        self.sim_bar_w = tk.Canvas(inner, bg=C["white"], height=18,
+                                   highlightthickness=2, highlightbackground=C["black"])
+        self.sim_bar_w.pack(fill="x", pady=(2, 0))
+        self.sim_lbl_w = neo_label(inner, "0 kg / — kg", font=FONTS["small"],
+                                   bg=C["yellow"], fg=C["dark_gray"])
+        self.sim_lbl_w.pack(anchor="w", pady=(2, 8))
+
+        # Volume meter
+        neo_label(inner, "📦  Volume:", font=FONTS["small"], bg=C["yellow"]).pack(anchor="w")
+        self.sim_bar_v = tk.Canvas(inner, bg=C["white"], height=18,
+                                   highlightthickness=2, highlightbackground=C["black"])
+        self.sim_bar_v.pack(fill="x", pady=(2, 0))
+        self.sim_lbl_v = neo_label(inner, "0 cm³ / — cm³", font=FONTS["small"],
+                                   bg=C["yellow"], fg=C["dark_gray"])
+        self.sim_lbl_v.pack(anchor="w", pady=(2, 8))
+
+        # Value meter
+        self.sim_lbl_val = neo_label(inner, "🏆  Nilai Sim  :  0", font=FONTS["small"],
+                                     bg=C["yellow"])
+        self.sim_lbl_val.pack(anchor="w", pady=(0, 4))
+        self.sim_lbl_stars = neo_label(inner, "☆☆☆☆☆", font=FONTS["body_b"],
+                                       bg=C["yellow"])
+        self.sim_lbl_stars.pack(anchor="w", pady=(0, 12))
+
+        # ── Tombol Hitung ─────────────────────────────────────
+        tk.Frame(inner, height=3, bg=C["black"]).pack(fill="x", pady=(0, 8))
         neo_button(inner, "⚡ HITUNG SOLUSI", C["pink"],
-                   self._solve).grid(row=2, column=11, padx=(20, 0), pady=2)
+                   self._solve).pack(fill="x", pady=4)
 
     # ── Panel Hasil ───────────────────────────────────────────
 
     def _build_result_panel(self) -> None:
         inner = neo_frame(self, bg=C["lime"])
-        inner._outer.pack(fill="x", padx=10, pady=(0, 10))
+        inner._outer.pack(side="bottom", fill="x", padx=10, pady=(0, 10))
         inner.configure(pady=10)
 
-        neo_label(inner, "HASIL SOLUSI", font=FONTS["head"],
-                  bg=C["lime"]).pack(anchor="w")
+        header_frame = tk.Frame(inner, bg=C["lime"])
+        header_frame.pack(fill="x", anchor="w")
+        neo_label(header_frame, "HASIL SOLUSI", font=FONTS["head"],
+                  bg=C["lime"]).pack(side="left")
+                  
+        self.btn_reveal = neo_button(header_frame, "👀 REVEAL SOLUTION", C["yellow"],
+                                     self._toggle_reveal, font_key="btn_sm",
+                                     padx=10, pady=4)
+        self.btn_reveal.pack(side="right")
+        self.btn_reveal._btn.config(state="disabled")
+
         tk.Frame(inner, height=3, bg=C["black"]).pack(fill="x", pady=(4, 8))
 
-        self._lbl_result = neo_label(
-            inner,
-            "Tekan  ⚡ HITUNG SOLUSI  untuk melihat hasil optimal.",
-            bg=C["lime"], justify="left",
-        )
-        self._lbl_result.pack(anchor="w")
+        # Frame untuk Text Info
+        self.result_info_frame = tk.Frame(inner, bg=C["lime"])
+        self.result_info_frame.pack(fill="x", pady=(0, 10))
+        
+        self.lbl_val = neo_label(self.result_info_frame, "Tekan  ⚡ HITUNG SOLUSI  untuk melihat hasil optimal.", bg=C["lime"], justify="left")
+        self.lbl_val.pack(anchor="w")
+        self.lbl_weight = neo_label(self.result_info_frame, "", bg=C["lime"], justify="left")
+        self.lbl_vol = neo_label(self.result_info_frame, "", bg=C["lime"], justify="left")
+        
+        # Bar Kapasitas selalu ada
+        self.canvas_vis = tk.Canvas(inner, bg=C["white"], height=30, highlightthickness=2, highlightbackground=C["black"])
+        self.canvas_vis.pack(fill="x", pady=(0, 10))
+
+        # Frame untuk Badges (menggunakan Text widget agar otomatis wrap)
+        self.lbl_badges_title = neo_label(inner, "Barang Terpilih:", bg=C["lime"], font=FONTS["body_b"])
+        self.badges_text = tk.Text(inner, bg=C["lime"], bd=0, highlightthickness=0, height=3, wrap="word", state="disabled", font=FONTS["small"])
 
     # ─────────────────────────────────────────────────────────
     # Trace Callbacks (Volume Otomatis)
@@ -383,6 +514,8 @@ class KnapsackApp(tk.Tk):
             text=f"{vol:,} cm³" if vol else "— cm³",
             fg=C["black"] if vol else C["dark_gray"],
         )
+        # Refresh simulasi meter karena max kapasitas bisa berubah
+        self._update_sim_meters()
 
     @staticmethod
     def _parse_volume(vp: tk.StringVar, vl: tk.StringVar,
@@ -430,13 +563,13 @@ class KnapsackApp(tk.Tk):
             return
 
         item: Item = {"name": name, "weight": w, "volume": volume,
-                       "value": popup.result}
+                       "value": popup.result, "active": False}  # default: tidak dicentang
         self.items.append(item)
         log.info("Barang ditambahkan: %s", item)
 
         stars = "★" * popup.result + "☆" * (5 - popup.result)
         self.tree.insert("", "end", values=(
-            len(self.items), name, f"{w}", f"{volume:,}", stars,
+            "☐", len(self.items), name, f"{w}", f"{volume:,}", stars,
         ))
 
         # Reset field input barang
@@ -459,7 +592,7 @@ class KnapsackApp(tk.Tk):
         # Renumber
         for i, iid in enumerate(self.tree.get_children()):
             vals = list(self.tree.item(iid, "values"))
-            vals[0] = i + 1
+            vals[1] = i + 1
             self.tree.item(iid, values=vals)
 
     def _import_csv(self) -> None:
@@ -487,12 +620,12 @@ class KnapsackApp(tk.Tk):
                     v = int(volume_str)
                     val = int(value_str)
 
-                    item: Item = {"name": name, "weight": w, "volume": v, "value": val}
+                    item: Item = {"name": name, "weight": w, "volume": v, "value": val, "active": False}  # default: tidak dicentang
                     self.items.append(item)
                     
                     stars = "★" * val + "☆" * max(0, 5 - val)
                     self.tree.insert("", "end", values=(
-                        len(self.items), name, f"{w}", f"{v:,}", stars,
+                        "☐", len(self.items), name, f"{w}", f"{v:,}", stars,
                     ))
                     count += 1
             log.info("Berhasil import %d barang dari CSV", count)
@@ -532,10 +665,65 @@ class KnapsackApp(tk.Tk):
             log.error("Gagal export CSV: %s", e)
             messagebox.showerror("Error Export", f"Gagal menyimpan file CSV.\n{e}")
 
+    def _update_sim_meters(self) -> None:
+        """Update progress bar simulasi (berat, volume, value) berdasarkan item yang dicentang."""
+        sim_items = [it for it in self.items if it.get("active", False)]
+        total_w   = sum(it["weight"] for it in sim_items)
+        total_v   = sum(it["volume"] for it in sim_items)
+        total_val = sum(it["value"]  for it in sim_items)
+        max_val   = sum(it["value"]  for it in self.items)
+
+        try:
+            max_w = float(self.var_cap_w.get())
+        except ValueError:
+            max_w = 0
+        max_v = self._parse_volume(self.var_cap_p, self.var_cap_l, self.var_cap_t)
+
+        # Update label berat
+        if max_w > 0:
+            pct_w = min(total_w / max_w, 1.0)
+            self.sim_lbl_w.config(text=f"{total_w:.1f} kg / {max_w:.1f} kg  ({pct_w*100:.0f}%)",
+                                   fg=C["pink"] if pct_w >= 1.0 else C["black"])
+        else:
+            pct_w = 0
+            self.sim_lbl_w.config(text=f"{total_w:.1f} kg / — kg", fg=C["dark_gray"])
+
+        # Update label volume
+        if max_v > 0:
+            pct_v = min(total_v / max_v, 1.0)
+            self.sim_lbl_v.config(text=f"{total_v:,} cm³ / {max_v:,} cm³  ({pct_v*100:.0f}%)",
+                                   fg=C["pink"] if pct_v >= 1.0 else C["black"])
+        else:
+            pct_v = 0
+            self.sim_lbl_v.config(text=f"{total_v:,} cm³ / — cm³", fg=C["dark_gray"])
+
+        # Gambar bar berat
+        self.sim_bar_w.update_idletasks()
+        cw = self.sim_bar_w.winfo_width() or 180
+        ch = int(self.sim_bar_w["height"])
+        self.sim_bar_w.delete("all")
+        if pct_w > 0:
+            bar_color = C["pink"] if pct_w >= 1.0 else C["lime"]
+            self.sim_bar_w.create_rectangle(0, 0, cw * pct_w, ch, fill=bar_color, outline="")
+
+        # Gambar bar volume
+        self.sim_bar_v.update_idletasks()
+        cw = self.sim_bar_v.winfo_width() or 180
+        ch = int(self.sim_bar_v["height"])
+        self.sim_bar_v.delete("all")
+        if pct_v > 0:
+            bar_color = C["pink"] if pct_v >= 1.0 else C["blue"]
+            self.sim_bar_v.create_rectangle(0, 0, cw * pct_v, ch, fill=bar_color, outline="")
+
+        # Update value
+        stars = "★" * total_val + "☆" * max(0, max_val - total_val)
+        self.sim_lbl_val.config(text=f"🏆  Nilai Sim  :  {total_val} / {max_val}")
+        self.sim_lbl_stars.config(text=stars[:10] if stars else "☆" * min(max_val, 10))
+
     def _solve(self) -> None:
         if not self.items:
             messagebox.showwarning("Kosong",
-                                   "Belum ada barang yang dimasukkan.")
+                                   "Belum ada barang di list untuk dihitung.")
             return
 
         try:
@@ -552,38 +740,178 @@ class KnapsackApp(tk.Tk):
                                    "Masukkan dimensi tas (P, L, T) dengan benar.")
             return
 
-        log.info("Menjalankan DP: %d barang, W=%.1fkg, V=%dcm³",
+        log.info("Menjalankan DP: %d barang total, W=%.1fkg, V=%dcm³",
                  len(self.items), max_w, max_v)
 
         result = solve_knapsack(self.items, max_w, max_v)
-        self._display_result(result, max_w, max_v)
+        
+        # Simpan semua state yang dibutuhkan reveal
+        self.last_result       = result
+        self.last_active_items = self.items
+        self.last_max_w        = max_w
+        self.last_max_v        = max_v
+        self.is_revealed       = False
+        
+        # Reset tampilan lama
+        for iid in self.tree.get_children():
+            self.tree.item(iid, tags=())
+        self.canvas_vis.delete("all")
+        self.canvas_vis.pack_forget()
 
-    def _display_result(self, result: dict, max_w: float, max_v: int) -> None:
-        selected    = result["selected"]
-        total_val   = result["total_value"]
-        total_w     = result["total_weight"]
-        total_vol   = result["total_volume"]
-        max_val     = sum(i["value"] for i in self.items)
+        # Tampilkan ringkasan saja (tanpa reveal)
+        max_val = sum(i["value"] for i in self.items)
+        val = result["total_value"]
+        stars = ("★" * val + "☆" * max(0, max_val - val))[:10]
+        
+        self.lbl_weight.pack(anchor="w")
+        self.lbl_vol.pack(anchor="w")
+        
+        self.lbl_val.config(text=f"✅ Kalkulasi selesai! Klik 👀 REVEAL SOLUTION.")
+        self.lbl_weight.config(text=f"🏆 Theoretical Max Value : {val} / {max_val}   {stars}")
+        self.lbl_vol.config(text="")
+        
+        self.lbl_badges_title.pack_forget()
+        self.badges_text.pack_forget()
+        self.badges_text.config(state="normal")
+        self.badges_text.delete("1.0", "end")
+        self.badges_text.config(state="disabled")
+        
+        self.btn_reveal._btn.config(state="normal", text="👀 REVEAL SOLUTION")
+
+    def _toggle_reveal(self) -> None:
+        if not self.last_result or not self.last_active_items:
+            return
+            
+        if self.is_revealed:
+            self._hide_solution()
+        else:
+            self._reveal_solution()
+
+    def _hide_solution(self) -> None:
+        self.is_revealed = False
+        self.btn_reveal._btn.config(text="👀 REVEAL SOLUTION")
+        for iid in self.tree.get_children():
+            self.tree.item(iid, tags=())
+        self.canvas_vis.delete("all")
+        self.lbl_badges_title.pack_forget()
+        self.badges_text.pack_forget()
+        self.badges_text.config(state="normal")
+        self.badges_text.delete("1.0", "end")
+        self.badges_text.config(state="disabled")
+            
+        if self.last_result and self.last_active_items:
+            max_val = sum(i["value"] for i in self.last_active_items)
+            val = self.last_result["total_value"]
+            stars = ("★" * val + "☆" * max(0, max_val - val))[:10]
+            self.lbl_val.config(text=f"✅ Kalkulasi selesai! Klik 👀 REVEAL SOLUTION.")
+            self.lbl_weight.config(text=f"🏆 Theoretical Max Value : {val} / {max_val}   {stars}")
+            self.lbl_vol.config(text="")
+
+    def _reveal_solution(self) -> None:
+        self.is_revealed = True
+        self.btn_reveal._btn.config(text="🙈 HIDE SOLUTION")
+        
+        result     = self.last_result
+        items_used = self.last_active_items
+        max_w      = self.last_max_w
+        max_v      = self.last_max_v
+
+        selected  = result["selected"]
 
         # Highlight baris terpilih di tabel
+        selected_set = set(selected)
         for iid in self.tree.get_children():
-            name = self.tree.item(iid, "values")[1]
-            self.tree.item(iid, tags=("selected",) if name in selected else ())
+            name = self.tree.item(iid, "values")[2]
+            self.tree.item(iid, tags=("selected",) if name in selected_set else ())
         self.tree.tag_configure("selected", background=C["lime"])
 
-        pct_w = (total_w   / max_w  * 100) if max_w  else 0
-        pct_v = (total_vol / max_v  * 100) if max_v  else 0
-        names = "  ·  ".join(selected) if selected else "(tidak ada)"
-        stars = ("★" * total_val + "☆" * max(0, max_val - total_val))[:10]
+        self.lbl_badges_title.pack(anchor="w", pady=(0, 4))
+        self.badges_text.pack(fill="x", anchor="w")
+        self.badges_text.config(state="normal")
+        self.badges_text.delete("1.0", "end")
+        self.badges_text.config(state="disabled")
 
-        self._lbl_result.config(text=(
-            f"✅  Barang Terpilih  :  {names}\n\n"
-            f"🏆  Total Nilai      :  {total_val} / {max_val}   {stars}\n"
-            f"⚖️   Total Berat      :  {total_w} kg  dari  {max_w} kg  "
-            f"({pct_w:.1f}%)\n"
-            f"📦  Total Volume     :  {total_vol:,} cm³  dari  {max_v:,} cm³  "
-            f"({pct_v:.1f}%)"
-        ))
+        self.update_idletasks()
+        self._animate_visualization(selected_set, items_used, max_w, max_v)
+        
+    def _animate_visualization(self, selected_set: set[str], items_used: list[Item], max_w: float, max_v: float) -> None:
+        """Animasi blok-blok barang terpilih yang mengisi bar kapasitas secara sekuensial."""
+        self.canvas_vis.delete("all")
+        
+        # Fallback if winfo_width is not ready
+        cw = self.canvas_vis.winfo_width()
+        if cw < 10:
+            cw = self.winfo_width() - 60
+            
+        ch = int(self.canvas_vis["height"]) # Use requested height
+
+        chosen = [it for it in items_used if it["name"] in selected_set]
+        max_val = sum(i["value"] for i in items_used)
+
+        if not chosen or max_w <= 0:
+            stars = ("☆" * max_val)[:10]
+            self.lbl_val.config(text=f"🏆  Total Nilai      :  0 / {max_val}   {stars}")
+            self.lbl_weight.config(text=f"⚖️   Total Berat      :  0 kg  dari  {max_w} kg  (0.0%)")
+            self.lbl_vol.config(text=f"📦  Total Volume     :  0 cm³  dari  {max_v:,} cm³  (0.0%)")
+            return
+
+        colors = [C["blue"], C["yellow"], C["pink"], "#00D2FF", "#A78BFA", "#F87171"]
+
+        # Variabel akumulasi untuk real-time update
+        self._anim_val = 0
+        self._anim_w = 0.0
+        self._anim_vol = 0
+
+        def draw_next(idx: int, x: float) -> None:
+            if idx > len(chosen) or not self.is_revealed:
+                return
+                
+            if idx > 0:
+                # Tambahkan nilai barang sebelumnya
+                prev_it = chosen[idx-1]
+                self._anim_val += prev_it["value"]
+                self._anim_w += prev_it["weight"]
+                self._anim_vol += prev_it["volume"]
+                
+                # Buat badge block
+                color = colors[(idx-1) % len(colors)]
+                badge = tk.Frame(self.badges_text, bg=color, highlightthickness=2, highlightbackground=C["black"], padx=6, pady=4)
+                tk.Label(badge, text=prev_it["name"], bg=color, fg=C["black"], font=FONTS["small"]).pack()
+                
+                self.badges_text.config(state="normal")
+                self.badges_text.window_create("end", window=badge)
+                self.badges_text.insert("end", "  ")
+                self.badges_text.config(state="disabled")
+            
+            # Update teks real-time
+            pct_w = (self._anim_w / max_w * 100) if max_w else 0
+            pct_v = (self._anim_vol / max_v * 100) if max_v else 0
+            stars = ("★" * self._anim_val + "☆" * max(0, max_val - self._anim_val))[:10]
+            
+            self.lbl_val.config(text=f"🏆  Total Nilai      :  {self._anim_val} / {max_val}   {stars}")
+            self.lbl_weight.config(text=f"⚖️   Total Berat      :  {self._anim_w:.1f} kg  dari  {max_w} kg  ({pct_w:.1f}%)")
+            self.lbl_vol.config(text=f"📦  Total Volume     :  {self._anim_vol:,} cm³  dari  {max_v:,} cm³  ({pct_v:.1f}%)")
+
+            if idx == len(chosen):
+                return # Selesai
+                
+            it = chosen[idx]
+            bw = (it["weight"] / max_w) * cw
+            color = colors[idx % len(colors)]
+            
+            # Gambar block di canvas
+            self.canvas_vis.create_rectangle(x, 0, x + bw, ch, fill=color, outline=C["black"], width=2)
+            if bw > 40:
+                self.canvas_vis.create_text(
+                    x + bw / 2, ch / 2,
+                    text=f"{it['name']} ({it['weight']}kg)",
+                    font=FONTS["small"], fill=C["black"]
+                )
+                
+            self.after(300, lambda nx=x + bw, i=idx + 1: draw_next(i, nx))
+
+        # Mulai animasi
+        draw_next(0, 0.0)
 
     def _reset(self) -> None:
         if self.items and not messagebox.askyesno(
@@ -597,9 +925,43 @@ class KnapsackApp(tk.Tk):
                     self.var_t, self.var_cap_w, self.var_cap_p,
                     self.var_cap_l, self.var_cap_t):
             var.set("")
-        self._lbl_result.config(
-            text="Tekan  ⚡ HITUNG SOLUSI  untuk melihat hasil optimal.")
+            
+        self.last_result       = None
+        self.last_active_items = None
+        self.last_max_w        = 0.0
+        self.last_max_v        = 0
+        self.is_revealed       = False
+        self.btn_reveal._btn.config(state="disabled", text="👀 REVEAL SOLUTION")
+        self.canvas_vis.delete("all")
+        
+        self.lbl_badges_title.pack_forget()
+        self.badges_frame.pack_forget()
+        for widget in self.badges_frame.winfo_children():
+            widget.destroy()
+            
+        self.lbl_val.config(text="Tekan  ⚡ HITUNG SOLUSI  untuk melihat hasil optimal.")
+        self.lbl_weight.pack_forget()
+        self.lbl_vol.pack_forget()
         log.info("Aplikasi di-reset.")
+
+
+    def _toggle_music(self) -> None:
+        """Toggle mute/unmute musik latar."""
+        if not _PYGAME_OK:
+            return
+        try:
+            if self.music_muted:
+                pygame.mixer.music.set_volume(0.5)
+                self.music_muted = False
+                self.btn_music._btn.config(text="🔇 MUTE")
+                log.debug("Musik dilanjutkan (unmute).")
+            else:
+                pygame.mixer.music.set_volume(0.0)
+                self.music_muted = True
+                self.btn_music._btn.config(text="🔊 UNMUTE")
+                log.debug("Musik dibisukan (mute).")
+        except Exception as e:
+            log.warning("Gagal toggle musik: %s", e)
 
 
 # ─────────────────────────────────────────────────────────────────

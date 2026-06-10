@@ -17,31 +17,21 @@ Nilai kepentingan tiap barang ditentukan melalui pop-up kuis 5 pertanyaan bergay
 
 ## Cara Menjalankan
 
-1. **Install tkinter** jika belum ada (merupakan *SYSTEM dependency*, bukan paket pip):
+1. **Install dependensi Python**:
+   Proyek ini menggunakan `pygame` untuk memutar musik latar. Install melalui pip:
+   ```cmd
+   pip install -r requirements.txt
+   ```
 
-   - **Arch Linux:**
-     ```bash
-     sudo pacman -S tk
-     ```
-   - **Ubuntu/Debian:**
-     ```bash
-     sudo apt-get install python3-tk
-     ```
-   - **Windows:**
-     Sudah otomatis terinstall bersama Python dari [python.org](https://www.python.org/).
+2. **Install tkinter** jika belum ada di sistem Anda (merupakan *SYSTEM dependency*, bukan paket pip):
+   - **Arch Linux:** `sudo pacman -S tk`
+   - **Ubuntu/Debian:** `sudo apt-get install python3-tk`
+   - **Windows:** Sudah otomatis terinstall bersama Python dari [python.org](https://www.python.org/).
 
-2. **Jalankan aplikasi:**
-
-   - **Windows:**
-     ```cmd
-     python main.py
-     ```
-   - **Linux/WSL:**
-     ```bash
-     python3 main.py
-     ```
-
-> **Catatan:** Tidak ada `pip install` yang dibutuhkan. File `requirements.txt` kosong karena semua library yang digunakan (`tkinter`, `logging`, `typing`) adalah bawaan Python (*stdlib*).
+3. **Jalankan aplikasi:**
+   ```cmd
+   python main.py
+   ```
 
 ---
 

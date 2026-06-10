@@ -1,9 +1,10 @@
 # requirements.txt
-# Aplikasi ini hanya menggunakan library bawaan Python 3.x.
-# Tidak ada dependensi eksternal yang perlu di-install.
+# Aplikasi ini menggunakan library bawaan Python 3.x dan pygame untuk musik.
 #
-# Pastikan Python 3.9+ terinstall:
-#   python --version
+# Pastikan Python 3.9+ terinstall, lalu jalankan:
+#   pip install -r requirements.txt
 #
 # Jalankan aplikasi:
 #   python main.py
+
+pygame==2.6.1

@@ -1,7 +1,7 @@
 """
 dp_solver.py
 Algoritma Dynamic Programming untuk Multi-Constraint 0/1 Knapsack Problem.
-Refactored untuk modularitas dan kemudahan debug.
+Batasan: berat (kg) dan volume (cm³).
 """
 
 import logging
