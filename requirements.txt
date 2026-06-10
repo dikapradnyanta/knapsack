@@ -1,0 +1,9 @@
+# requirements.txt
+# Aplikasi ini hanya menggunakan library bawaan Python 3.x.
+# Tidak ada dependensi eksternal yang perlu di-install.
+#
+# Pastikan Python 3.9+ terinstall:
+#   python --version
+#
+# Jalankan aplikasi:
+#   python main.py
