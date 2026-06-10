@@ -4,9 +4,10 @@ GUI Knapsack Solver — Dynamic Programming Multi-Constraint
 Gaya Visual: Neobrutalism
 """
 
+import csv
 import logging
 import tkinter as tk
-from tkinter import ttk, messagebox
+from tkinter import ttk, messagebox, filedialog
 
 from quiz_popup import QuizPopup
 from dp_solver import solve_knapsack, Item
@@ -28,11 +29,11 @@ log = logging.getLogger(__name__)
 # ─────────────────────────────────────────────────────────────────
 
 C: dict[str, str] = {
-    "bg":        "#FFFDF0",
-    "black":     "#0D0D0D",
-    "yellow":    "#FFE500",
-    "pink":      "#FF6B9D",
-    "blue":      "#74D7FF",
+    "bg":        "#FAFAF8",
+    "black":     "#000000",
+    "yellow":    "#FFDE59",
+    "pink":      "#EF4444",
+    "blue":      "#3B82F6",
     "lime":      "#B8FF57",
     "white":     "#FFFFFF",
     "gray":      "#D0D0D0",
@@ -40,13 +41,13 @@ C: dict[str, str] = {
 }
 
 FONTS: dict[str, tuple] = {
-    "title":  ("Arial Black", 20, "bold"),
-    "head":   ("Arial Black", 12, "bold"),
-    "body":   ("Arial", 11),
-    "body_b": ("Arial", 11, "bold"),
-    "small":  ("Arial", 9),
-    "btn":    ("Arial Black", 12),
-    "btn_sm": ("Arial Black", 10),
+    "title":  ("Space Grotesk", 20, "bold"),
+    "head":   ("Space Grotesk", 14, "bold"),
+    "body":   ("Inter", 11),
+    "body_b": ("Inter", 11, "bold"),
+    "small":  ("Inter", 9),
+    "btn":    ("Space Grotesk", 12, "bold"),
+    "btn_sm": ("Space Grotesk", 10, "bold"),
 }
 
 
@@ -55,10 +56,10 @@ FONTS: dict[str, tuple] = {
 # ─────────────────────────────────────────────────────────────────
 
 def neo_frame(parent: tk.Widget, bg: str = C["white"]) -> tk.Frame:
-    """Frame dengan border hitam tebal. Kembalikan inner frame."""
+    """Frame dengan border hitam tebal dan hard shadow."""
     outer = tk.Frame(parent, bg=C["black"])
-    inner = tk.Frame(outer, bg=bg, padx=8, pady=8)
-    inner.pack(padx=3, pady=3, fill="both", expand=True)
+    inner = tk.Frame(outer, bg=bg, highlightbackground=C["black"], highlightthickness=2, padx=16, pady=16)
+    inner.pack(padx=(0, 6), pady=(0, 6), fill="both", expand=True)
     # Simpan referensi outer agar bisa di-pack/grid dari luar
     inner._outer = outer  # type: ignore[attr-defined]
     return inner
@@ -72,44 +73,48 @@ def neo_label(parent: tk.Widget, text: str, font=None,
 
 def neo_entry(parent: tk.Widget, textvariable: tk.StringVar,
               width: int = 14, bg: str = C["white"]) -> tk.Frame:
-    """Entry dengan border hitam tipis. Kembalikan wrapper frame."""
-    wrapper = tk.Frame(parent, bg=C["black"])
+    """Entry dengan border hitam dan hard shadow 2px."""
+    shadow = tk.Frame(parent, bg=C["black"])
+    entry_frame = tk.Frame(shadow, bg=bg, highlightbackground=C["black"], highlightthickness=2)
+    entry_frame.pack(padx=(0, 2), pady=(0, 2), fill="both", expand=True)
+    
     tk.Entry(
-        wrapper,
+        entry_frame,
         textvariable=textvariable,
         width=width,
         font=FONTS["body"],
         bg=bg, fg=C["black"],
         insertbackground=C["black"],
-        relief="flat", bd=4,
+        relief="flat", bd=2,
         highlightthickness=0,
     ).pack(padx=2, pady=2)
-    return wrapper
+    return shadow
 
 
 def neo_button(parent: tk.Widget, text: str, color: str,
                command, font_key: str = "btn",
                padx: int = 16, pady: int = 8) -> tk.Frame:
     """Tombol bergaya neobrutalism dengan shadow efek saat diklik."""
-    container = tk.Frame(parent, bg=C["black"])
+    shadow = tk.Frame(parent, bg=C["black"])
     btn = tk.Button(
-        container,
+        shadow,
         text=text,
         bg=color, fg=C["black"],
         font=FONTS[font_key],
-        relief="flat", bd=0,
+        relief="flat", bd=0, highlightthickness=2, highlightbackground=C["black"],
         padx=padx, pady=pady,
         cursor="hand2",
         activebackground=color, activeforeground=C["black"],
         command=command,
     )
-    btn.pack(padx=3, pady=3)
+    # Default state: offset hard shadow 4px 4px
+    btn.pack(padx=(0, 4), pady=(0, 4))
 
     # Press animation (geser shadow)
-    btn.bind("<ButtonPress-1>",   lambda _e: btn.pack_configure(padx=1, pady=1))
-    btn.bind("<ButtonRelease-1>", lambda _e: btn.pack_configure(padx=3, pady=3))
+    btn.bind("<ButtonPress-1>",   lambda _e: btn.pack_configure(padx=(4, 0), pady=(4, 0)))
+    btn.bind("<ButtonRelease-1>", lambda _e: btn.pack_configure(padx=(0, 4), pady=(0, 4)))
 
-    return container
+    return shadow
 
 
 # ─────────────────────────────────────────────────────────────────
@@ -250,13 +255,28 @@ class KnapsackApp(tk.Tk):
         tk.Frame(inner, height=3, bg=C["black"]).pack(fill="x", pady=(0, 6))
 
         self._setup_treeview(inner)
-        neo_button(inner, "🗑 HAPUS DIPILIH", C["gray"],
+        
+        btn_row = tk.Frame(inner, bg=C["white"])
+        btn_row.pack(fill="x", pady=(8, 0))
+        
+        neo_button(btn_row, "📥 IMPORT CSV", C["blue"],
+                   self._import_csv, font_key="btn_sm",
+                   padx=10, pady=6).pack(side="left", padx=(0, 4))
+        
+        neo_button(btn_row, "📤 EXPORT CSV", C["yellow"],
+                   self._export_csv, font_key="btn_sm",
+                   padx=10, pady=6).pack(side="left", padx=4)
+        
+        neo_button(btn_row, "🗑 HAPUS", C["gray"],
                    self._delete_item, font_key="btn_sm",
-                   padx=12, pady=6).pack(pady=(8, 0))
+                   padx=10, pady=6).pack(side="right", padx=(4, 0))
 
     def _setup_treeview(self, parent: tk.Widget) -> None:
+        wrapper = tk.Frame(parent, bg=C["black"], bd=2)
+        wrapper.pack(fill="both", expand=True)
+
         cols = ("no", "nama", "berat", "volume", "nilai")
-        self.tree = ttk.Treeview(parent, columns=cols, show="headings",
+        self.tree = ttk.Treeview(wrapper, columns=cols, show="headings",
                                   height=10, selectmode="browse")
 
         col_defs = [
@@ -283,14 +303,12 @@ class KnapsackApp(tk.Tk):
                   background=[("selected", C["yellow"])],
                   foreground=[("selected", C["black"])])
 
-        scroll = ttk.Scrollbar(parent, orient="vertical",
+        scroll = ttk.Scrollbar(wrapper, orient="vertical",
                                 command=self.tree.yview)
         self.tree.configure(yscrollcommand=scroll.set)
 
-        wrapper = tk.Frame(parent, bg=C["black"], bd=2)
-        wrapper.pack(fill="both", expand=True)
-        self.tree.pack(in_=wrapper, fill="both", expand=True, padx=2, pady=2)
-        scroll.pack(in_=wrapper, side="right", fill="y")
+        self.tree.pack(side="left", fill="both", expand=True, padx=(2, 0), pady=2)
+        scroll.pack(side="right", fill="y", padx=(0, 2), pady=2)
 
     # ── Panel Kapasitas Tas ───────────────────────────────────
 
@@ -443,6 +461,76 @@ class KnapsackApp(tk.Tk):
             vals = list(self.tree.item(iid, "values"))
             vals[0] = i + 1
             self.tree.item(iid, values=vals)
+
+    def _import_csv(self) -> None:
+        filepath = filedialog.askopenfilename(
+            title="Import CSV Barang",
+            filetypes=[("CSV Files", "*.csv"), ("All Files", "*.*")]
+        )
+        if not filepath:
+            return
+
+        try:
+            with open(filepath, "r", encoding="utf-8") as f:
+                reader = csv.DictReader(f)
+                count = 0
+                for row in reader:
+                    name = row.get("Nama", "").strip()
+                    weight_str = row.get("Berat(kg)", "0")
+                    volume_str = row.get("Volume(cm3)", "0")
+                    value_str = row.get("Nilai", "0")
+
+                    if not name:
+                        continue
+
+                    w = float(weight_str)
+                    v = int(volume_str)
+                    val = int(value_str)
+
+                    item: Item = {"name": name, "weight": w, "volume": v, "value": val}
+                    self.items.append(item)
+                    
+                    stars = "★" * val + "☆" * max(0, 5 - val)
+                    self.tree.insert("", "end", values=(
+                        len(self.items), name, f"{w}", f"{v:,}", stars,
+                    ))
+                    count += 1
+            log.info("Berhasil import %d barang dari CSV", count)
+            messagebox.showinfo("Import Berhasil", f"Berhasil mengimpor {count} barang.")
+        except Exception as e:
+            log.error("Gagal import CSV: %s", e)
+            messagebox.showerror("Error Import", f"Gagal membaca file CSV.\nPastikan format kolom benar: Nama, Berat(kg), Volume(cm3), Nilai.\nDetail: {e}")
+
+    def _export_csv(self) -> None:
+        if not self.items:
+            messagebox.showwarning("Kosong", "Belum ada barang untuk di-export.")
+            return
+
+        filepath = filedialog.asksaveasfilename(
+            title="Export CSV Barang",
+            defaultextension=".csv",
+            filetypes=[("CSV Files", "*.csv"), ("All Files", "*.*")]
+        )
+        if not filepath:
+            return
+
+        try:
+            with open(filepath, "w", newline="", encoding="utf-8") as f:
+                fieldnames = ["Nama", "Berat(kg)", "Volume(cm3)", "Nilai"]
+                writer = csv.DictWriter(f, fieldnames=fieldnames)
+                writer.writeheader()
+                for item in self.items:
+                    writer.writerow({
+                        "Nama": item["name"],
+                        "Berat(kg)": item["weight"],
+                        "Volume(cm3)": item["volume"],
+                        "Nilai": item["value"],
+                    })
+            log.info("Berhasil export %d barang ke CSV", len(self.items))
+            messagebox.showinfo("Export Berhasil", f"Data berhasil disimpan di:\n{filepath}")
+        except Exception as e:
+            log.error("Gagal export CSV: %s", e)
+            messagebox.showerror("Error Export", f"Gagal menyimpan file CSV.\n{e}")
 
     def _solve(self) -> None:
         if not self.items:

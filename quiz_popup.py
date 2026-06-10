@@ -25,11 +25,11 @@ QUESTIONS: list[str] = [
 
 # Palet Warna Neobrutalism
 COLORS: dict[str, str] = {
-    "bg":        "#FFFDF0",
-    "black":     "#0D0D0D",
-    "yellow":    "#FFE500",
-    "pink":      "#FF6B9D",
-    "blue":      "#74D7FF",
+    "bg":        "#FAFAF8",
+    "black":     "#000000",
+    "yellow":    "#FFDE59",
+    "pink":      "#EF4444",
+    "blue":      "#3B82F6",
     "lime":      "#B8FF57",
     "white":     "#FFFFFF",
     "gray":      "#D0D0D0",
@@ -54,30 +54,36 @@ def _make_neo_button(
     color: str,
     command,
     font_size: int = 13,
-) -> tk.Button:
-    """Buat tombol bergaya neobrutalism dengan efek press."""
+    fg: str = None,
+) -> tk.Frame:
+    """Buat tombol bergaya neobrutalism dengan efek press (hard shadow)."""
+    fg_color = fg if fg else COLORS["black"]
+    shadow = tk.Frame(parent, bg=COLORS["black"])
     btn = tk.Button(
-        parent,
+        shadow,
         text=text,
         bg=color,
-        fg=COLORS["black"],
-        font=("Arial Black", font_size),
+        fg=fg_color,
+        font=("Space Grotesk", font_size, "bold"),
         relief="flat",
         bd=0,
         padx=20,
         pady=10,
         cursor="hand2",
         activebackground=color,
-        activeforeground=COLORS["black"],
+        activeforeground=fg_color,
         command=command,
-        highlightthickness=3,
+        highlightthickness=2,
         highlightbackground=COLORS["black"],
     )
-    btn.bind("<ButtonPress-1>",
-             lambda _e: btn.config(highlightbackground=COLORS["dark_gray"]))
-    btn.bind("<ButtonRelease-1>",
-             lambda _e: btn.config(highlightbackground=COLORS["black"]))
-    return btn
+    # Default state: offset hard shadow 4px 4px
+    btn.pack(padx=(0, 4), pady=(0, 4))
+
+    # Press animation
+    btn.bind("<ButtonPress-1>", lambda _e: btn.pack_configure(padx=(4, 0), pady=(4, 0)))
+    btn.bind("<ButtonRelease-1>", lambda _e: btn.pack_configure(padx=(0, 4), pady=(0, 4)))
+    
+    return shadow
 
 
 # ─────────────────────────────────────────────────────────────────
@@ -140,10 +146,10 @@ class QuizPopup(tk.Toplevel):
 
         tk.Label(hdr, text="📦  Seberapa penting barang ini?",
                  bg=COLORS["yellow"], fg=COLORS["black"],
-                 font=("Arial Black", 14, "bold"), pady=12).pack()
+                 font=("Space Grotesk", 14, "bold"), pady=12).pack()
         tk.Label(hdr, text=f'"{self.item_name}"',
                  bg=COLORS["yellow"], fg=COLORS["black"],
-                 font=("Arial", 11, "italic"), pady=4).pack()
+                 font=("Inter", 11, "italic"), pady=4).pack()
 
         # Body
         body = tk.Frame(self._quiz_frame, bg=COLORS["bg"])
@@ -277,8 +283,7 @@ class QuizPopup(tk.Toplevel):
         tk.Frame(frame, height=3, bg=COLORS["black"]).pack(fill="x", pady=12)
 
         save_btn = _make_neo_button(frame, "SIMPAN & LANJUT ✔",
-                                    COLORS["black"], self._close_ok, font_size=12)
-        save_btn.config(fg=COLORS["yellow"])
+                                    COLORS["black"], self._close_ok, font_size=12, fg=COLORS["yellow"])
         save_btn.pack()
 
     def _close_ok(self) -> None:
