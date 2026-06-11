@@ -3,6 +3,8 @@
 **Desain & Analisa Algoritma (DAA)**
 **Semester 4 — UAS**
 
+![Screenshot Aplikasi](image.png)
+
 ---
 
 ## Deskripsi
