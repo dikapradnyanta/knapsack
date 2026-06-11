@@ -71,6 +71,24 @@ Pengguna dapat menonaktifkan salah satu atau kedua batasan tersebut jika diingin
 
 ---
 
+## Skenario Pengujian Data (Best Case & Worst Case)
+
+Setiap algoritma yang diimplementasikan pada aplikasi ini memiliki kelebihan dan titik lemahnya masing-masing. Berikut adalah pedoman pengujian untuk memahami karakteristik performanya:
+
+### 1. Dynamic Programming (DP)
+- **Best Case:** Terjadi ketika kapasitas tas (Berat dan Volume) disetel pada angka yang moderat. Karena matriks memori yang dibentuk berukuran kecil, DP akan memberikan solusi 100% optimal dalam waktu instan dengan penggunaan RAM di bawah 5 MB.
+- **Worst Case:** Terjadi apabila kapasitas tas disetel ke angka yang sangat ekstrem (contoh: volume ratusan ribu cm³) tanpa batasan resolusi. Hal ini memaksa algoritma mengalokasikan jutaan sel matriks di dalam memori, sehingga waktu komputasi bisa melambat hingga beberapa detik dan memakan RAM secara besar-besaran (Space-Time Tradeoff).
+
+### 2. Algoritma Greedy
+- **Best Case:** Terjadi apabila barang-barang dengan rasio nilai tertinggi secara kebetulan memiliki ukuran yang pas untuk mengisi penuh tas tanpa menyisakan celah kosong. Greedy akan menyelesaikan kalkulasi nyaris dalam 0.00 milidetik (memori nyaris 0 MB) sambil memberikan solusi yang menyerupai tingkat optimalitas DP.
+- **Worst Case:** Terjadi saat ada suatu barang dengan ukuran raksasa namun memiliki nilai yang cukup tinggi. Greedy akan memprioritaskan barang tersebut hingga menghabiskan seluruh sisa tas, padahal ruang tersebut sejatinya bisa diisi oleh lima barang kecil lain yang bila diakumulasi nilainya jauh mengalahkan barang raksasa tersebut. Hasil komputasinya sangat tidak optimal.
+
+### 3. Algoritma Brute Force
+- **Best Case:** Terjadi saat jumlah data barang yang dimasukkan relatif sedikit (kisaran 1 hingga 15 barang). Komputer akan menyelesaikan pencarian secara menyeluruh dalam sekedip mata, memberikan jaminan solusi 100% optimal dengan beban memori yang jauh lebih ringan dibanding DP.
+- **Worst Case:** Terjadi bila pengguna mencoba menganalisis kumpulan data berskala besar (contoh: 30 hingga 50 barang ke atas). Karena waktu eksekusi bertumbuh secara eksponensial (O(2^N)), komputasi 40 barang akan menuntut evaluasi atas lebih dari 1 Triliun kombinasi. Aplikasi akan mengalami *freeze* atau *hang* hingga hitungan hari.
+
+---
+
 ## Penjelasan Algoritma
 
 1. **Dynamic Programming (Kompleksitas: O(N × W × V))**
