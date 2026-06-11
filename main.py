@@ -1,12 +1,13 @@
 """
 main.py
-GUI Knapsack Solver — Dynamic Programming Multi-Constraint
+GUI Knapsack Solver — Dynamic Programming / Brute Force / Greedy
 Gaya Visual: Neobrutalism
 """
 
 import csv
 import logging
 import os
+import time
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
 
@@ -18,6 +19,8 @@ except ImportError:
 
 from quiz_popup import QuizPopup
 from dp_solver import solve_knapsack, Item
+from bf_solver import solve_knapsack_bf
+from greedy_solver import solve_knapsack_greedy
 
 # ─────────────────────────────────────────────────────────────────
 # Logging Setup  (ubah level ke DEBUG untuk output verbose)
@@ -275,11 +278,19 @@ class KnapsackApp(tk.Tk):
         self.var_cap_l  = tk.StringVar()
         self.var_cap_t  = tk.StringVar()
 
+        # Checkbox aktifkan/nonaktifkan batasan
+        self.var_use_weight = tk.BooleanVar(value=True)
+        self.var_use_volume = tk.BooleanVar(value=True)
+
         # Trace volume otomatis
         for v in (self.var_p, self.var_l, self.var_t):
             v.trace_add("write", self._on_item_dim_changed)
         for v in (self.var_cap_p, self.var_cap_l, self.var_cap_t):
             v.trace_add("write", self._on_cap_dim_changed)
+
+        # Trace checkbox → update meter
+        self.var_use_weight.trace_add("write", lambda *_: self._on_constraint_toggle())
+        self.var_use_volume.trace_add("write", lambda *_: self._on_constraint_toggle())
 
     # ── Posisi Window ─────────────────────────────────────────
 
@@ -474,18 +485,37 @@ class KnapsackApp(tk.Tk):
                   bg=C["yellow"]).pack(anchor="w", pady=(0, 4))
         tk.Frame(inner, height=3, bg=C["black"]).pack(fill="x", pady=(0, 10))
 
-        # Berat maks
-        neo_label(inner, "Berat Maks (kg):", font=FONTS["body_b"],
-                  bg=C["yellow"]).pack(anchor="w")
-        neo_entry(inner, textvariable=self.var_cap_w, width=10).pack(anchor="w", pady=(2, 8))
+        # ── Berat Maks + Checkbox ─────────────────────────────
+        w_row = tk.Frame(inner, bg=C["yellow"])
+        w_row.pack(fill="x")
+        neo_label(w_row, "Berat Maks (kg):", font=FONTS["body_b"],
+                  bg=C["yellow"]).pack(side="left")
+        self._chk_weight = tk.Checkbutton(
+            w_row, text="Aktif", variable=self.var_use_weight,
+            bg=C["yellow"], fg=C["black"], selectcolor=C["white"],
+            activebackground=C["yellow"], font=FONTS["small"],
+            relief="flat", cursor="hand2",
+        )
+        self._chk_weight.pack(side="right")
+        self._entry_cap_w = neo_entry(inner, textvariable=self.var_cap_w, width=10)
+        self._entry_cap_w.pack(anchor="w", pady=(2, 8))
 
-        # Dimensi tas
-        neo_label(inner, "Dimensi Tas (cm):", font=FONTS["body_b"],
-                  bg=C["yellow"]).pack(anchor="w")
-        dim_row = tk.Frame(inner, bg=C["yellow"])
-        dim_row.pack(anchor="w", pady=(2, 0))
+        # ── Dimensi Tas + Checkbox ────────────────────────────
+        v_row = tk.Frame(inner, bg=C["yellow"])
+        v_row.pack(fill="x")
+        neo_label(v_row, "Dimensi Tas (cm):", font=FONTS["body_b"],
+                  bg=C["yellow"]).pack(side="left")
+        self._chk_volume = tk.Checkbutton(
+            v_row, text="Aktif", variable=self.var_use_volume,
+            bg=C["yellow"], fg=C["black"], selectcolor=C["white"],
+            activebackground=C["yellow"], font=FONTS["small"],
+            relief="flat", cursor="hand2",
+        )
+        self._chk_volume.pack(side="right")
+        self._frame_dim = tk.Frame(inner, bg=C["yellow"])
+        self._frame_dim.pack(anchor="w", pady=(2, 0))
         for var, lbl in [(self.var_cap_p, "P"), (self.var_cap_l, "L"), (self.var_cap_t, "T")]:
-            cell = tk.Frame(dim_row, bg=C["yellow"])
+            cell = tk.Frame(self._frame_dim, bg=C["yellow"])
             cell.pack(side="left", padx=(0, 4))
             neo_label(cell, lbl, font=FONTS["small"], bg=C["yellow"]).pack(anchor="w")
             neo_entry(cell, textvariable=var, width=5).pack()
@@ -522,15 +552,23 @@ class KnapsackApp(tk.Tk):
         # Value meter
         self.sim_lbl_val = neo_label(inner, "🏆  Nilai Sim  :  0", font=FONTS["small"],
                                      bg=C["yellow"])
-        self.sim_lbl_val.pack(anchor="w", pady=(0, 4))
-        self.sim_lbl_stars = neo_label(inner, "☆☆☆☆☆", font=FONTS["body_b"],
-                                       bg=C["yellow"])
-        self.sim_lbl_stars.pack(anchor="w", pady=(0, 12))
+        self.sim_lbl_val.pack(anchor="w", pady=(0, 12))
 
         # ── Tombol Hitung ─────────────────────────────────────
         tk.Frame(inner, height=3, bg=C["black"]).pack(fill="x", pady=(0, 8))
-        neo_button(inner, "CARI SOLUSI OPTIMAL", C["pink"],
-                   self._solve, icon_type="lightning").pack(fill="x", pady=4)
+        
+        btn_row = tk.Frame(inner, bg=C["yellow"])
+        btn_row.pack(fill="x", pady=(4, 2))
+        
+        neo_button(btn_row, "BRUTE FORCE", C["lime"],
+                   self._solve_bf, font_key="btn_sm",
+                   padx=8, pady=6).pack(side="left", fill="x", expand=True, padx=(0, 2))
+        neo_button(btn_row, "GREEDY", C["blue"],
+                   self._solve_greedy, font_key="btn_sm",
+                   padx=8, pady=6).pack(side="left", fill="x", expand=True, padx=(2, 0))
+                   
+        neo_button(inner, "SOLUSI OPTIMAL (DP)", C["pink"],
+                   self._solve, icon_type="lightning").pack(fill="x", pady=(2, 4))
 
     # ── Panel Hasil ───────────────────────────────────────────
 
@@ -556,10 +594,19 @@ class KnapsackApp(tk.Tk):
         self.result_info_frame = tk.Frame(inner, bg=C["lime"])
         self.result_info_frame.pack(fill="x", pady=(0, 10))
         
-        self.lbl_val = neo_label(self.result_info_frame, "Tekan ⚡ CARI SOLUSI OPTIMAL untuk mulai menghitung.", bg=C["lime"], justify="left")
+        left_info = tk.Frame(self.result_info_frame, bg=C["lime"])
+        left_info.pack(side="left", fill="both", expand=True)
+        
+        self.lbl_val = neo_label(left_info, "Tekan ⚡ CARI SOLUSI OPTIMAL untuk mulai menghitung.", bg=C["lime"], justify="left")
         self.lbl_val.pack(anchor="w")
-        self.lbl_weight = neo_label(self.result_info_frame, "", bg=C["lime"], justify="left")
-        self.lbl_vol = neo_label(self.result_info_frame, "", bg=C["lime"], justify="left")
+        self.lbl_weight = neo_label(left_info, "", bg=C["lime"], justify="left")
+        self.lbl_vol = neo_label(left_info, "", bg=C["lime"], justify="left")
+        
+        right_info = tk.Frame(self.result_info_frame, bg=C["lime"])
+        right_info.pack(side="right", fill="y")
+        
+        self.lbl_time = neo_label(right_info, "", font=FONTS["small"], bg=C["lime"], fg=C["dark_gray"])
+        self.lbl_time.pack(side="bottom", anchor="se")
         
         # Bar Kapasitas selalu ada
         self.canvas_vis = tk.Canvas(inner, bg=C["white"], height=30, highlightthickness=2, highlightbackground=C["black"])
@@ -788,66 +835,195 @@ class KnapsackApp(tk.Tk):
             self.sim_bar_v.create_rectangle(0, 0, cw * pct_v, ch, fill=bar_color, outline="")
 
         # Update value
-        stars = "★" * total_val + "☆" * max(0, max_val - total_val)
         self.sim_lbl_val.config(text=f"🏆  Nilai Sim  :  {total_val} / {max_val}")
-        self.sim_lbl_stars.config(text=stars[:10] if stars else "☆" * min(max_val, 10))
+
+    # ─────────────────────────────────────────────────────────
+    # Constraint Toggle Helper
+    # ─────────────────────────────────────────────────────────
+
+    def _on_constraint_toggle(self) -> None:
+        """Aktifkan/nonaktifkan widget input sesuai checkbox."""
+        use_w = self.var_use_weight.get()
+        use_v = self.var_use_volume.get()
+
+        state_w = "normal" if use_w else "disabled"
+        state_v = "normal" if use_v else "disabled"
+
+        def set_state(widget: tk.Widget, state: str) -> None:
+            if isinstance(widget, tk.Entry):
+                widget.configure(state=state)
+            for child in widget.winfo_children():
+                set_state(child, state)
+
+        set_state(self._entry_cap_w, state_w)
+        set_state(self._frame_dim, state_v)
+
+        self._update_sim_meters()
+
+    # ─────────────────────────────────────────────────────────
+    # Validasi Kapasitas (dengan dukungan checkbox)
+    # ─────────────────────────────────────────────────────────
+
+    def _get_capacity(self) -> tuple[float, int] | None:
+        """
+        Ambil max_w dan max_v sesuai status checkbox.
+        Kembalikan None jika ada input wajib yang kosong/salah.
+        Return (max_w, max_v) — nilai besar jika constraint dinonaktifkan.
+        """
+        use_w = self.var_use_weight.get()
+        use_v = self.var_use_volume.get()
+
+        if use_w:
+            try:
+                max_w = float(self.var_cap_w.get())
+                assert max_w > 0
+            except (ValueError, AssertionError):
+                messagebox.showwarning("Input Salah",
+                                       "Kapasitas berat tas harus berupa angka positif.")
+                return None
+        else:
+            max_w = float("inf")  # tidak dibatasi
+
+        if use_v:
+            max_v = self._parse_volume(self.var_cap_p, self.var_cap_l, self.var_cap_t)
+            if max_v <= 0:
+                messagebox.showwarning("Input Kurang",
+                                       "Masukkan dimensi tas (P, L, T) dengan benar.")
+                return None
+        else:
+            max_v = 2 ** 31  # tidak dibatasi
+
+        return max_w, max_v
+
+    # ─────────────────────────────────────────────────────────
+    # Solve Methods
+    # ─────────────────────────────────────────────────────────
 
     def _solve(self) -> None:
+        """Cari solusi dengan Dynamic Programming."""
         if not self.items:
-            messagebox.showwarning("Kosong",
-                                   "Belum ada barang di list untuk dihitung.")
+            messagebox.showwarning("Kosong", "Belum ada barang di list untuk dihitung.")
             return
 
-        try:
-            max_w = float(self.var_cap_w.get())
-            assert max_w > 0
-        except (ValueError, AssertionError):
-            messagebox.showwarning("Input Salah",
-                                   "Kapasitas berat tas harus berupa angka positif.")
+        cap = self._get_capacity()
+        if cap is None:
             return
+        max_w, max_v = cap
 
-        max_v = self._parse_volume(self.var_cap_p, self.var_cap_l, self.var_cap_t)
-        if max_v <= 0:
-            messagebox.showwarning("Input Kurang",
-                                   "Masukkan dimensi tas (P, L, T) dengan benar.")
-            return
+        use_w = self.var_use_weight.get()
+        use_v = self.var_use_volume.get()
 
-        log.info("Menjalankan DP: %d barang total, W=%.1fkg, V=%dcm³",
-                 len(self.items), max_w, max_v)
+        log.info("Menjalankan DP: %d barang, W=%s kg, V=%s cm³",
+                 len(self.items),
+                 f"{max_w:.1f}" if use_w else "∞",
+                 f"{max_v:,}" if use_v else "∞")
 
-        result = solve_knapsack(self.items, max_w, max_v)
+        # DP hanya mendukung nilai integer untuk kapasitas;
+        # jika batasan dinonaktifkan, tetapkan nilai besar namun terbatas
+        dp_w = max_w if use_w else sum(i["weight"] for i in self.items)
+        dp_v = int(max_v) if use_v else sum(i["volume"] for i in self.items)
+
+        start_time = time.perf_counter()
+        result = solve_knapsack(self.items, dp_w, dp_v)
+        elapsed = time.perf_counter() - start_time
         
-        # Simpan semua state yang dibutuhkan reveal
+        self._display_result(result, max_w, max_v, algo="DP", elapsed=elapsed)
+
+    def _solve_greedy(self) -> None:
+        """Cari solusi dengan Greedy."""
+        if not self.items:
+            messagebox.showwarning("Kosong", "Belum ada barang di list untuk dihitung.")
+            return
+
+        cap = self._get_capacity()
+        if cap is None:
+            return
+        max_w, max_v = cap
+
+        use_w = self.var_use_weight.get()
+        use_v = self.var_use_volume.get()
+
+        log.info("Menjalankan Greedy: %d barang", len(self.items))
+        start_time = time.perf_counter()
+        result = solve_knapsack_greedy(
+            self.items, max_w, int(max_v), use_weight=use_w, use_volume=use_v
+        )
+        elapsed = time.perf_counter() - start_time
+        self._display_result(result, max_w, max_v, algo="Greedy", elapsed=elapsed)
+
+    def _solve_bf(self) -> None:
+        """Cari solusi dengan Brute Force (hanya direkomendasikan ≤ 20 barang)."""
+        if not self.items:
+            messagebox.showwarning("Kosong", "Belum ada barang di list untuk dihitung.")
+            return
+
+        n = len(self.items)
+        if n > 20:
+            if not messagebox.askyesno(
+                "Peringatan Brute Force",
+                f"Brute Force akan mengevaluasi 2^{n} = {2**n:,} kombinasi.\n"
+                f"Ini mungkin sangat lambat untuk {n} barang.\n\nLanjutkan?"
+            ):
+                return
+
+        cap = self._get_capacity()
+        if cap is None:
+            return
+        max_w, max_v = cap
+
+        use_w = self.var_use_weight.get()
+        use_v = self.var_use_volume.get()
+
+        log.info("Menjalankan Brute Force: %d barang", n)
+        start_time = time.perf_counter()
+        result = solve_knapsack_bf(
+            self.items, max_w, int(max_v), use_weight=use_w, use_volume=use_v
+        )
+        elapsed = time.perf_counter() - start_time
+        self._display_result(result, max_w, max_v, algo="Brute Force", elapsed=elapsed)
+
+    def _display_result(
+        self,
+        result: dict,
+        max_w: float,
+        max_v: int,
+        algo: str = "DP",
+        elapsed: float = 0.0,
+    ) -> None:
+        """Tampilkan ringkasan hasil ke panel HASIL SOLUSI."""
+        # Simpan state untuk reveal
         self.last_result       = result
         self.last_active_items = self.items
-        self.last_max_w        = max_w
-        self.last_max_v        = max_v
+        self.last_max_w        = max_w if self.var_use_weight.get() else sum(i["weight"] for i in self.items)
+        self.last_max_v        = int(max_v) if self.var_use_volume.get() else sum(i["volume"] for i in self.items)
         self.is_revealed       = False
-        
+
         # Reset tampilan lama
         for iid in self.tree.get_children():
             self.tree.item(iid, tags=())
         self.canvas_vis.delete("all")
         self.canvas_vis.pack_forget()
 
-        # Tampilkan ringkasan saja (tanpa reveal)
         max_val = sum(i["value"] for i in self.items)
         val = result["total_value"]
-        stars = ("★" * val + "☆" * max(0, max_val - val))[:10]
-        
+
         self.lbl_weight.pack(anchor="w")
         self.lbl_vol.pack(anchor="w")
-        
-        self.lbl_val.config(text=f"✅ Kalkulasi selesai! Tekan  LIHAT SOLUSI untuk detailnya.")
-        self.lbl_weight.config(text=f"🏆 Theoretical Max Value : {val} / {max_val}   {stars}")
+
+        self.lbl_val.config(
+            text=f"✅ [{algo}] Kalkulasi selesai! Tekan LIHAT SOLUSI untuk detailnya."
+        )
+        self.lbl_weight.config(text=f"🏆 Theoretical Max Value : {val} / {max_val}")
         self.lbl_vol.config(text="")
         
+        self.lbl_time.config(text=f"⏱ Waktu Eksekusi: {elapsed*1000:.2f} ms")
+
         self.lbl_badges_title.pack_forget()
         self.badges_text.pack_forget()
         self.badges_text.config(state="normal")
         self.badges_text.delete("1.0", "end")
         self.badges_text.config(state="disabled")
-        
+
         self.btn_reveal._btn.config(state="normal", text="LIHAT SOLUSI")
 
     def _toggle_reveal(self) -> None:
@@ -875,9 +1051,8 @@ class KnapsackApp(tk.Tk):
         if self.last_result and self.last_active_items:
             max_val = sum(i["value"] for i in self.last_active_items)
             val = self.last_result["total_value"]
-            stars = ("★" * val + "☆" * max(0, max_val - val))[:10]
             self.lbl_val.config(text=f"✅ Kalkulasi selesai! Tekan LIHAT SOLUSI untuk detailnya.")
-            self.lbl_weight.config(text=f"🏆 Theoretical Max Value : {val} / {max_val}   {stars}")
+            self.lbl_weight.config(text=f"🏆 Theoretical Max Value : {val} / {max_val}")
             self.lbl_vol.config(text="")
 
     def _reveal_solution(self) -> None:
@@ -921,12 +1096,23 @@ class KnapsackApp(tk.Tk):
 
         chosen = [it for it in items_used if it["name"] in selected_set]
         max_val = sum(i["value"] for i in items_used)
+        
+        use_w = self.var_use_weight.get()
+        use_v = self.var_use_volume.get()
 
         if not chosen or max_w <= 0:
-            stars = ("☆" * max_val)[:10]
-            self.lbl_val.config(text=f"🏆  Total Nilai     :  0 / {max_val}   {stars}")
-            self.lbl_weight.config(text=f"⚖️  Total Berat     :  0 kg dari {max_w} kg (0%)")
-            self.lbl_vol.config(text=f"📦  Total Volume    :  0 cm³ dari {max_v:,} cm³ (0%)")
+            self.lbl_val.config(text=f"🏆  Total Nilai     :  0 / {max_val}")
+            if use_w:
+                self.lbl_weight.config(text=f"⚖️  Total Berat     :  0 kg dari {max_w} kg (0%)")
+                self.lbl_weight.pack(anchor="w")
+            else:
+                self.lbl_weight.pack_forget()
+
+            if use_v:
+                self.lbl_vol.config(text=f"📦  Total Volume    :  0 cm³ dari {max_v:,} cm³ (0%)")
+                self.lbl_vol.pack(anchor="w")
+            else:
+                self.lbl_vol.pack_forget()
             return
 
         colors = [C["blue"], C["yellow"], C["pink"], "#00D2FF", "#A78BFA", "#F87171"]
@@ -960,11 +1146,19 @@ class KnapsackApp(tk.Tk):
             # Update teks real-time
             pct_w = (self._anim_w / max_w * 100) if max_w else 0
             pct_v = (self._anim_vol / max_v * 100) if max_v else 0
-            stars = ("★" * self._anim_val + "☆" * max(0, max_val - self._anim_val))[:10]
             
-            self.lbl_val.config(text=f"🏆  Total Nilai     :  {self._anim_val} / {max_val}   {stars}")
-            self.lbl_weight.config(text=f"⚖️  Total Berat     :  {self._anim_w:.1f} kg dari {max_w} kg ({pct_w:.1f}%)")
-            self.lbl_vol.config(text=f"📦  Total Volume    :  {self._anim_vol:,} cm³ dari {max_v:,} cm³ ({pct_v:.1f}%)")
+            self.lbl_val.config(text=f"🏆  Total Nilai     :  {self._anim_val} / {max_val}")
+            if use_w:
+                self.lbl_weight.config(text=f"⚖️  Total Berat     :  {self._anim_w:.1f} kg dari {max_w} kg ({pct_w:.1f}%)")
+                self.lbl_weight.pack(anchor="w")
+            else:
+                self.lbl_weight.pack_forget()
+                
+            if use_v:
+                self.lbl_vol.config(text=f"📦  Total Volume    :  {self._anim_vol:,} cm³ dari {max_v:,} cm³ ({pct_v:.1f}%)")
+                self.lbl_vol.pack(anchor="w")
+            else:
+                self.lbl_vol.pack_forget()
 
             if idx == len(chosen):
                 return # Selesai
@@ -1017,6 +1211,7 @@ class KnapsackApp(tk.Tk):
         self.lbl_val.config(text="Tekan ⚡ CARI SOLUSI OPTIMAL untuk mulai menghitung.")
         self.lbl_weight.pack_forget()
         self.lbl_vol.pack_forget()
+        self.lbl_time.config(text="")
         log.info("Aplikasi di-reset.")
 
 
